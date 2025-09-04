@@ -1,0 +1,456 @@
+# First Contact E.I.S. (Enhanced Intake System)
+
+A unified platform that enables AI-powered intake for residents, provides caseworker productivity tools with triage and care planning, and delivers city-level analytics and compliance reporting. Built for free-tier deployment with cost-conscious AI usage.
+
+## 🚀 Quick Start
+
+### Local Development
+```bash
+git clone <repository>
+cd first-contact-eis
+npm install
+npm start
+```
+
+### Replit (One-Click Deploy)
+[![Run on Replit](https://replit.com/badge/github/your-username/first-contact-eis)](https://replit.com/@your-username/first-contact-eis)
+
+### Environment Setup
+```bash
+cp .env.example .env
+# Edit .env with your settings
+```
+
+## 📋 System Overview
+
+### Core Features
+- **Resident Self-Onboarding**: Mobile-first intake with AI Navigator
+- **Caseworker Tools**: Triage suggestions, care plan drafts, productivity features
+- **City Analytics**: Real-time dashboards, HUD/HMIS exports, compliance reporting
+- **Kiosk Mode**: Software-only kiosk for public locations
+- **Cost Controls**: Intelligent caching, budget limits, AI usage monitoring
+
+### Role-Based Access
+- **Residents**: Self-onboarding, status tracking, appointment management
+- **Staff**: Client management, AI-assisted workflows, data export
+- **Admins**: Full system visibility, analytics, configuration, compliance
+
+## 🏗️ Architecture
+
+### Tech Stack
+- **Backend**: Node.js + Express
+- **Frontend**: Server-rendered HTML + Tailwind CSS (CDN)
+- **Data**: JSON file storage (easily upgradeable to SQLite/Postgres)
+- **AI**: OpenAI API with cost-guarding and caching
+- **Charts**: Chart.js (CDN)
+- **Hosting**: Replit, Vercel, Render compatible
+
+### Project Structure
+```
+first-contact-eis/
+├── index.js                 # Main server entry point
+├── package.json             # Dependencies and scripts
+├── .replit                  # Replit configuration
+├── server/                  # Core server modules
+│   ├── routes.js           # All HTTP routes and render functions
+│   ├── repository.js       # Data access layer
+│   ├── ai-router.js        # AI routing with cost controls
+│   └── cost-guard.js       # Budget monitoring and caching
+├── data/                    # JSON data storage
+│   ├── clients.json        # Client records
+│   ├── appointments.json   # Appointment scheduling
+│   ├── caseworkers.json    # Staff directory
+│   ├── config.json         # System configuration
+│   └── hubs.json           # Service locations
+└── README.md               # This file
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+```bash
+# Authentication
+ADMIN_PIN=4242                    # Admin portal access
+STAFF_PIN=2024                    # Staff dashboard access
+
+# AI Configuration
+AI_ENABLE=false                   # Enable/disable AI features
+OPENAI_API_KEY=                   # OpenAI API key (optional)
+AI_MAX_TOKENS_CHEAP=256           # Token limit for cheap model calls
+AI_MAX_TOKENS_EXPENSIVE=512       # Token limit for expensive model calls
+AI_TEMP=0.2                       # AI temperature setting
+
+# Cache Configuration
+CACHE_TTL_FAQ=86400              # Navigator cache TTL (24 hours)
+CACHE_TTL_TRIAGE=7200            # Triage cache TTL (2 hours)  
+CACHE_TTL_ANALYTICS=900          # Analytics cache TTL (15 minutes)
+
+# Server
+PORT=3000                        # Server port
+```
+
+### Feature Flags
+Access via `/admin/flags` to toggle:
+- AI Navigator for residents
+- AI Care Plan generation for staff
+- Analytics auto-refresh scheduling
+
+## 📊 Data Model
+
+### Client Record
+```json
+{
+  "id": "uuid-v4",
+  "name": "string (redacted if consent=0)",
+  "phone": "string (redacted if consent=0)",
+  "needs": ["housing", "employment", "mental-health"],
+  "urgency": "low|medium|high|critical",
+  "zipCode": "string",
+  "householdSize": 1,
+  "consent": 0|1,
+  "status": "intake|active|pending|closed",
+  "caseworkerId": "uuid",
+  "createdAt": "ISO-8601",
+  "updatedAt": "ISO-8601",
+  "hubCode": "HUB-LB-001",
+  "additionalInfo": "string"
+}
+```
+
+### Appointment Record
+```json
+{
+  "id": "uuid-v4",
+  "clientId": "uuid",
+  "caseworkerId": "uuid", 
+  "scheduledDate": "ISO-8601",
+  "method": "phone|in-person|video",
+  "location": "string",
+  "status": "scheduled|confirmed|completed|cancelled",
+  "createdAt": "ISO-8601"
+}
+```
+
+### Caseworker Record
+```json
+{
+  "id": "uuid-v4",
+  "name": "string",
+  "agency": "string",
+  "specialties": ["housing", "veterans", "mental-health"]
+}
+```
+
+## 🔐 Security Model
+
+### Authentication
+- **PIN-based**: Simple numeric PINs for staff and admin access
+- **Cookie-based sessions**: HttpOnly cookies for auth state
+- **Role separation**: Clear boundaries between resident, staff, admin views
+
+### Data Protection
+- **PII Redaction**: Automatic redaction for consent=0 clients
+- **Role-based visibility**: Staff see only relevant data, admins see all
+- **No persistent sessions**: Regular timeout for security
+
+### Privacy Compliance
+- **Minimal data collection**: Only essential fields required
+- **Consent management**: Clear consent choices with different data handling
+- **Anonymous support**: Full functionality for users who decline PII sharing
+
+## 🤖 AI Implementation
+
+### Cost-Conscious Design
+The AI system uses a three-tier approach to minimize costs:
+
+1. **Rules-Based First**: Local rule engines handle common scenarios
+2. **Cheap Model**: GPT-3.5-style calls for uncertain cases (256 tokens max)
+3. **Expensive Model**: GPT-4-style calls only when needed (512 tokens max)
+
+### AI Router Logic
+```javascript
+// Pseudo-code for AI routing
+async function route(task, input) {
+  // Step 1: Try rules first (no API cost)
+  result = tryRulesFirst(task, input);
+  if (result.confidence > 0.7) return result;
+  
+  // Step 2: Try cheap model if AI enabled
+  if (AI_ENABLED) {
+    result = await tryCheapModel(task, input);
+    if (result.confidence > 0.8) return result;
+    
+    // Step 3: Escalate to expensive model if needed
+    result = await tryExpensiveModel(task, input);
+  }
+  
+  return result;
+}
+```
+
+### Caching Strategy
+- **FAQ/Navigator**: 24-hour cache for common questions
+- **Triage**: 2-hour cache for assessment suggestions  
+- **Care Plans**: 2-hour cache for plan templates
+- **Analytics**: 15-minute cache for dashboard data
+
+### Budget Controls
+- Daily token limits with automatic cutoffs
+- Cache hit rate monitoring
+- Real-time cost estimation
+- Emergency disable switches
+
+## 📈 Analytics & Compliance
+
+### Real-Time Metrics
+- Total intakes (last 30 days)
+- Average time to appointment
+- Urgent cases count
+- Active caseworkers
+- Service need distribution
+- Geographic distribution (ZIP codes)
+- Caseworker performance/workload
+
+### HUD/HMIS Export
+The system generates CSV exports aligned with HUD/HMIS requirements:
+
+```csv
+PersonalID,FirstName,LastName,SSN,DOB,Race,Ethnicity,Gender,
+EnrollmentID,ProjectID,EntryDate,ExitDate,Destination,
+HouseholdID,RelationshipToHoH,LengthOfStay,PreviousStreetESSH,
+DisabilityType,DisabilityResponse,IndefiniteAndImpairs,
+IncomeFromAnySource,TotalMonthlyIncome,Earned,EarnedAmount
+```
+
+**Note**: Many HMIS fields are not collected during intake and will export as empty. This maintains HMIS compatibility while respecting privacy-first intake design.
+
+### Compliance Features
+- Automated CSV generation with proper escaping
+- Date/time standardization (ISO-8601)
+- Audit trails for all client interactions
+- Data retention policy compliance
+- Privacy redaction for non-consenting clients
+
+## 🖥️ User Interfaces
+
+### Resident Experience (`/`)
+- Clean, trauma-informed onboarding flow
+- AI Navigator for service explanations
+- Mobile-optimized design with large touch targets
+- Success page with appointment details
+- Status tracking via tokenized URLs
+- Multi-language ready (English default)
+
+### Staff Dashboard (`/staff`)
+- Client list with filtering and search
+- Urgency-based prioritization
+- AI triage suggestions per client
+- AI care plan drafts
+- Manual client onboarding
+- CSV export of caseload
+- Quick status updates
+
+### Admin Portal (`/admin`)
+- Real-time analytics dashboard
+- HUD/HMIS export generation
+- Feature flag management
+- Cost monitoring and controls
+- Scheduling configuration
+- Kiosk mode controls
+- System health monitoring
+
+### Kiosk Mode (`/kiosk`)
+- Full-screen public interface
+- Simplified onboarding flow
+- Exit protection with PIN
+- Auto-refresh to prevent timeouts
+- Accessibility compliant
+- Works on tablets and touch screens
+
+## 🔄 Deployment
+
+### Free Tier Compatibility
+- **Replit**: Zero-config deployment with persistent data
+- **Vercel**: Serverless functions with file system
+- **Render**: Container deployment with disk storage
+- **Railway**: Docker deployment with volume mounts
+
+### Production Considerations
+```bash
+# Production environment variables
+NODE_ENV=production
+AI_ENABLE=true
+OPENAI_API_KEY=your_key_here
+
+# Scale considerations
+# - Use Redis for caching in high-volume scenarios
+# - Upgrade to PostgreSQL for >10k clients
+# - Implement load balancing for >1000 concurrent users
+```
+
+### Data Migration
+The JSON-based storage is designed for easy migration:
+```bash
+# To upgrade to SQLite/PostgreSQL
+npm install sqlite3  # or pg
+node scripts/migrate-to-sql.js
+```
+
+## 🧪 Testing & Quality
+
+### Acceptance Tests
+- [ ] Resident flow: QR → onboarding → success → status page
+- [ ] Staff flow: login → dashboard → manual onboarding → AI tools
+- [ ] Admin flow: login → analytics → exports → feature flags
+- [ ] Kiosk flow: enable → onboarding → exit
+- [ ] Cost controls: cache hits, budget limits, AI toggles
+- [ ] Privacy: PII redaction for consent=0 clients
+- [ ] Performance: page loads <3s, API responses <1s
+
+### Load Testing
+```bash
+# Simulate typical usage
+# - 50 concurrent onboardings
+# - 10 caseworkers active
+# - 5 admin dashboard views
+# - Target: <100ms P95 response time
+```
+
+## 🔍 Monitoring & Observability
+
+### Built-in Metrics
+- AI cost tracking (tokens, API calls, cache hit rate)
+- User flow completion rates
+- System performance (response times, error rates)
+- Data quality (missing fields, validation errors)
+
+### Health Checks
+```javascript
+GET /health
+{
+  "status": "healthy",
+  "uptime": "2h 34m 12s",
+  "database": "connected",
+  "ai_service": "available",
+  "cache_hit_rate": "87.3%",
+  "daily_budget_used": "23.4%"
+}
+```
+
+## 🛡️ Troubleshooting
+
+### Common Issues
+
+**AI Navigator not working**
+```bash
+# Check environment variables
+echo $AI_ENABLE  # Should be 'true'
+echo $OPENAI_API_KEY  # Should be set
+# Check admin cost panel for budget status
+```
+
+**CSV exports empty**
+```bash
+# Check data directory permissions
+ls -la data/
+# Verify client records exist
+cat data/clients.json | jq length
+```
+
+**Kiosk mode stuck**
+```bash
+# Emergency exit via direct URL
+curl -X POST localhost:3000/admin/kiosk/exit -d "pin=4242"
+```
+
+**High costs**
+```bash
+# Check cache performance
+curl localhost:3000/admin/cost
+# Disable AI if needed
+export AI_ENABLE=false && npm restart
+```
+
+### Performance Optimization
+```bash
+# Clear all caches
+curl -X POST localhost:3000/admin/cache/clear
+
+# Check memory usage
+node --inspect index.js
+# Use Chrome DevTools for memory profiling
+```
+
+## 🗺️ Roadmap
+
+### Phase 1 (MVP) - ✅ Complete
+- Basic intake and triage
+- Staff productivity tools
+- Admin analytics
+- Cost controls
+
+### Phase 2 (Enhancement)
+- [ ] SMS notifications for appointments
+- [ ] Multi-language support (Spanish priority)
+- [ ] Advanced reporting dashboards
+- [ ] API integration with existing HMIS systems
+
+### Phase 3 (Scale)
+- [ ] Multi-tenant architecture
+- [ ] Advanced AI features (document parsing, appointment scheduling)
+- [ ] Mobile app for caseworkers
+- [ ] Integration with CalFresh, Medi-Cal, other benefits
+
+### Phase 4 (Innovation)
+- [ ] Predictive analytics for service matching
+- [ ] Automated outcome tracking
+- [ ] Cross-agency coordination tools
+- [ ] Real-time translation services
+
+## 🤝 Contributing
+
+### Development Setup
+```bash
+git clone <repository>
+cd first-contact-eis
+npm install
+cp .env.example .env
+npm run dev  # Starts with file watching
+```
+
+### Code Standards
+- ES6+ JavaScript with clear variable names
+- Server-side rendering for performance
+- Mobile-first responsive design
+- Accessibility (WCAG 2.1 AA compliance)
+- Security by design (input validation, output encoding)
+
+### Pull Request Process
+1. Feature branch from main
+2. Add tests for new functionality
+3. Update README for any config changes
+4. Ensure all acceptance tests pass
+5. Review cost impact of AI changes
+
+## 📞 Support
+
+### Production Issues
+- **Emergency**: Disable AI via environment variables
+- **Data Loss**: Check `data/` directory backups
+- **Performance**: Monitor `/admin/cost` panel
+
+### Feature Requests
+- Submit detailed use cases
+- Include screenshots/mockups if UI changes
+- Specify target user role (resident/staff/admin)
+- Consider cost implications for AI features
+
+## 📄 License
+
+MIT License - See LICENSE file for details.
+
+---
+
+**Built for Long Beach human services with ❤️ by the Einharjer Innovative Solutions team**
+
+*"Connecting people with resources through technology and compassion"*
