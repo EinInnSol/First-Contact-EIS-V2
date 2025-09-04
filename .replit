@@ -1,0 +1,42 @@
+# .replit configuration for First Contact E.I.S.
+
+modules = ["nodejs-18", "web"]
+
+[nix]
+channel = "stable-22_11"
+
+[env]
+NODE_ENV = "production"
+ADMIN_PIN = "4242"
+STAFF_PIN = "2024"
+AI_ENABLE = "false"
+CACHE_TTL_FAQ = "86400"
+CACHE_TTL_TRIAGE = "7200"
+CACHE_TTL_ANALYTICS = "900"
+AI_MAX_TOKENS_CHEAP = "256"
+AI_MAX_TOKENS_EXPENSIVE = "512"
+AI_TEMP = "0.2"
+
+[deployment]
+run = ["node", "index.js"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[languages]
+
+[languages.javascript]
+pattern = "**/{*.js,*.jsx,*.ts,*.tsx,*.mjs,*.cjs}"
+
+[languages.javascript.languageServer]
+start = "typescript-language-server --stdio"
+
+[packager]
+language = "nodejs"
+
+[packager.features]
+enabledForHosting = false
+packageSearch = true
+guessImports = true
