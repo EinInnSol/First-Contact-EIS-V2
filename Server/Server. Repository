@@ -1,0 +1,327 @@
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const dayjs = require('dayjs');
+
+const DATA_DIR = path.join(__dirname, '../data');
+
+class Repository {
+  constructor() {
+    this.clients = this.loadData('clients.json', []);
+    this.appointments = this.loadData('appointments.json', []);
+    this.config = this.loadData('config.json', {
+      enableAINavigator: false,
+      enableAICareplan: false,
+      enableAnalyticsRefresh: true,
+      scheduleRefreshHour: 6
+    });
+    this.caseworkers = this.loadData('caseworkers.json', [
+      { id: 'cw-001', name: 'Sarah Chen', agency: 'Long Beach Housing Authority', specialties: ['housing', 'families'] },
+      { id: 'cw-002', name: 'Marcus Johnson', agency: 'Multi-Service Center', specialties: ['veterans', 'mental-health'] },
+      { id: 'cw-003', name: 'Elena Rodriguez', agency: 'PATH', specialties: ['youth', 'substance-abuse'] },
+      { id: 'cw-004', name: 'James Park', agency: 'Long Beach Health Dept', specialties: ['medical', 'disabilities'] }
+    ]);
+    this.hubs = this.loadData('hubs.json', [
+      { code: 'HUB-LB-001', name: 'Downtown Long Beach Hub', address: '333 W Ocean Blvd' },
+      { code: 'HUB-LB-002', name: 'North Long Beach Hub', address: '5248 Long Beach Blvd' }
+    ]);
+  }
+
+  loadData(filename, defaultValue = []) {
+    try {
+      const filePath = path.join(DATA_DIR, filename);
+      if (fs.existsSync(filePath)) {
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      }
+      return defaultValue;
+    } catch (error) {
+      console.warn(`Warning: Could not load ${filename}, using defaults`, error.message);
+      return defaultValue;
+    }
+  }
+
+  saveData(filename, data) {
+    try {
+      const filePath = path.join(DATA_DIR, filename);
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    } catch (error) {
+      console.error(`Error saving ${filename}:`, error);
+    }
+  }
+
+  // Client operations
+  createClient(clientData, redactPII = false) {
+    const client = {
+      id: uuidv4(),
+      createdAt: dayjs().toISOString(),
+      updatedAt: dayjs().toISOString(),
+      status: 'intake',
+      urgency: clientData.urgency || 'medium',
+      ...clientData
+    };
+
+    // Redact PII if consent not given
+    if (redactPII) {
+      client.name = 'Guest';
+      client.phone = '';
+      client.email = '';
+      client.demographics = {};
+    }
+
+    this.clients.push(client);
+    this.saveData('clients.json', this.clients);
+    return client;
+  }
+
+  getClients(filters = {}) {
+    let filtered = this.clients;
+    
+    if (filters.caseworkerId) {
+      filtered = filtered.filter(c => c.caseworkerId === filters.caseworkerId);
+    }
+    if (filters.urgency) {
+      filtered = filtered.filter(c => c.urgency === filters.urgency);
+    }
+    if (filters.need) {
+      filtered = filtered.filter(c => c.needs && c.needs.includes(filters.need));
+    }
+    if (filters.search) {
+      const search = filters.search.toLowerCase();
+      filtered = filtered.filter(c => 
+        (c.name && c.name.toLowerCase().includes(search)) ||
+        (c.phone && c.phone.includes(search))
+      );
+    }
+    
+    return filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  getClientById(id) {
+    return this.clients.find(c => c.id === id);
+  }
+
+  updateClient(id, updates) {
+    const index = this.clients.findIndex(c => c.id === id);
+    if (index !== -1) {
+      this.clients[index] = {
+        ...this.clients[index],
+        ...updates,
+        updatedAt: dayjs().toISOString()
+      };
+      this.saveData('clients.json', this.clients);
+      return this.clients[index];
+    }
+    return null;
+  }
+
+  // Appointment operations
+  createAppointment(appointmentData) {
+    const appointment = {
+      id: uuidv4(),
+      createdAt: dayjs().toISOString(),
+      status: 'scheduled',
+      ...appointmentData
+    };
+    
+    this.appointments.push(appointment);
+    this.saveData('appointments.json', this.appointments);
+    return appointment;
+  }
+
+  getAppointmentsByClient(clientId) {
+    return this.appointments.filter(a => a.clientId === clientId);
+  }
+
+  updateAppointment(id, updates) {
+    const index = this.appointments.findIndex(a => a.id === id);
+    if (index !== -1) {
+      this.appointments[index] = { ...this.appointments[index], ...updates };
+      this.saveData('appointments.json', this.appointments);
+      return this.appointments[index];
+    }
+    return null;
+  }
+
+  // Caseworker operations
+  getCaseworkers() {
+    return this.caseworkers;
+  }
+
+  getCaseworkerById(id) {
+    return this.caseworkers.find(cw => cw.id === id);
+  }
+
+  // Assignment logic - match caseworker to client needs
+  assignCaseworker(client) {
+    const needs = client.needs || [];
+    const urgency = client.urgency || 'medium';
+    
+    // Find caseworkers with matching specialties
+    let matches = this.caseworkers.filter(cw => 
+      cw.specialties.some(specialty => 
+        needs.some(need => need.toLowerCase().includes(specialty.toLowerCase().split('-')[0]))
+      )
+    );
+    
+    // If no specialty match, use all caseworkers
+    if (matches.length === 0) {
+      matches = this.caseworkers;
+    }
+    
+    // For urgent cases, prefer caseworkers with fewer current clients
+    if (urgency === 'high' || urgency === 'critical') {
+      const workloads = matches.map(cw => ({
+        ...cw,
+        clientCount: this.clients.filter(c => c.caseworkerId === cw.id && c.status === 'active').length
+      }));
+      workloads.sort((a, b) => a.clientCount - b.clientCount);
+      return workloads[0];
+    }
+    
+    // Random assignment for normal cases
+    return matches[Math.floor(Math.random() * matches.length)];
+  }
+
+  // Analytics data
+  getAnalyticsData() {
+    const now = dayjs();
+    const last30Days = this.clients.filter(c => 
+      dayjs(c.createdAt).isAfter(now.subtract(30, 'days'))
+    );
+    
+    const needsCount = {};
+    const urgencyCount = { low: 0, medium: 0, high: 0, critical: 0 };
+    const zipCount = {};
+    
+    last30Days.forEach(client => {
+      // Count needs
+      if (client.needs) {
+        client.needs.forEach(need => {
+          needsCount[need] = (needsCount[need] || 0) + 1;
+        });
+      }
+      
+      // Count urgency
+      urgencyCount[client.urgency || 'medium']++;
+      
+      // Count ZIP codes
+      if (client.zipCode) {
+        zipCount[client.zipCode] = (zipCount[client.zipCode] || 0) + 1;
+      }
+    });
+    
+    const caseworkerLoads = this.caseworkers.map(cw => ({
+      name: cw.name,
+      agency: cw.agency,
+      activeClients: this.clients.filter(c => c.caseworkerId === cw.id && c.status === 'active').length,
+      totalClients: this.clients.filter(c => c.caseworkerId === cw.id).length
+    }));
+    
+    const avgTimeToAppt = this.appointments.length > 0 ? 
+      this.appointments.reduce((sum, appt) => {
+        const client = this.getClientById(appt.clientId);
+        if (client && appt.scheduledDate) {
+          const diff = dayjs(appt.scheduledDate).diff(dayjs(client.createdAt), 'hours');
+          return sum + diff;
+        }
+        return sum;
+      }, 0) / this.appointments.length : 24;
+    
+    return {
+      totalIntakes: last30Days.length,
+      totalIntakesAll: this.clients.length,
+      needsCount,
+      urgencyCount,
+      zipCount,
+      caseworkerLoads,
+      avgTimeToAppointment: Math.round(avgTimeToAppt)
+    };
+  }
+
+  // Config operations
+  getConfig() {
+    return this.config;
+  }
+
+  updateConfig(updates) {
+    this.config = { ...this.config, ...updates };
+    this.saveData('config.json', this.config);
+    return this.config;
+  }
+
+  // Hub operations
+  getHubs() {
+    return this.hubs;
+  }
+
+  getHubByCode(code) {
+    return this.hubs.find(h => h.code === code);
+  }
+}
+
+let repoInstance = null;
+
+function getRepository() {
+  if (!repoInstance) {
+    repoInstance = new Repository();
+  }
+  return repoInstance;
+}
+
+function initializeData() {
+  const repo = getRepository();
+  
+  // Create demo clients if none exist
+  if (repo.clients.length === 0) {
+    const demoClients = [
+      {
+        name: 'Maria Santos',
+        phone: '(562) 555-0123',
+        needs: ['housing', 'employment'],
+        urgency: 'high',
+        zipCode: '90802',
+        householdSize: 3,
+        consent: 1,
+        status: 'active',
+        caseworkerId: 'cw-001'
+      },
+      {
+        name: 'Robert Kim',
+        phone: '(562) 555-0124',
+        needs: ['mental-health', 'veterans'],
+        urgency: 'medium',
+        zipCode: '90805',
+        householdSize: 1,
+        consent: 1,
+        status: 'intake',
+        caseworkerId: 'cw-002'
+      },
+      {
+        name: 'Anonymous User',
+        phone: '',
+        needs: ['substance-abuse'],
+        urgency: 'critical',
+        zipCode: '90813',
+        householdSize: 1,
+        consent: 0,
+        status: 'intake'
+      }
+    ];
+    
+    demoClients.forEach(client => {
+      const created = repo.createClient(client, client.consent === 0);
+      
+      // Create appointment for each client
+      const caseworker = repo.getCaseworkerById(client.caseworkerId) || repo.getCaseworkers()[0];
+      repo.createAppointment({
+        clientId: created.id,
+        caseworkerId: caseworker.id,
+        scheduledDate: dayjs().add(Math.floor(Math.random() * 7) + 1, 'days').toISOString(),
+        method: Math.random() > 0.5 ? 'phone' : 'in-person',
+        location: 'Downtown Hub'
+      });
+    });
+  }
+}
+
+module.exports = { getRepository, initializeData };
